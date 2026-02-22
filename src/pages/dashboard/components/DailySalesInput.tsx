@@ -1,9 +1,19 @@
 
-import { useState, useMemo } from 'react';
-import { dailySalesEntries, DailySalesEntry, OutsourceCost } from '../../../mocks/dailySalesData';
+import { useEffect, useMemo, useState } from 'react';
+import { DailySalesEntry, OutsourceCost } from '../../../mocks/dailySalesData';
 
-const DailySalesInput = () => {
-  const [entries, setEntries] = useState<DailySalesEntry[]>(dailySalesEntries);
+interface DailySalesInputProps {
+  entries: DailySalesEntry[];
+  setEntries: React.Dispatch<React.SetStateAction<DailySalesEntry[]>>;
+}
+
+const getLatestMonth = (list: DailySalesEntry[]) => {
+  if (list.length === 0) return new Date().toISOString().slice(0, 7);
+  const latest = [...list].sort((a, b) => b.date.localeCompare(a.date))[0];
+  return latest.date.slice(0, 7);
+};
+
+const DailySalesInput = ({ entries, setEntries }: DailySalesInputProps) => {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [revenue, setRevenue] = useState('');
   const [customers, setCustomers] = useState('');
@@ -14,8 +24,14 @@ const DailySalesInput = () => {
   const [showSuccess, setShowSuccess] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
-  const [filterMonth, setFilterMonth] = useState('2025-01');
+  const [filterMonth, setFilterMonth] = useState(getLatestMonth(entries));
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!entries.some((entry) => entry.date.startsWith(filterMonth))) {
+      setFilterMonth(getLatestMonth(entries));
+    }
+  }, [entries, filterMonth]);
 
   const filteredEntries = useMemo(() => {
     return entries
@@ -95,7 +111,7 @@ const DailySalesInput = () => {
       showNotification('売上データを更新しました');
     } else {
       const newEntry: DailySalesEntry = {
-        id: `DS-${String(entries.length + 1).padStart(3, '0')}`,
+        id: `DS-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         date,
         revenue: revenueNum,
         customers: customersNum,

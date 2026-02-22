@@ -1,5 +1,6 @@
 
 import { useState, useRef, useCallback } from 'react';
+import { DailySalesEntry } from '../../../mocks/dailySalesData';
 
 interface CsvRow {
   date: string;
@@ -15,6 +16,11 @@ interface ImportResult {
 }
 
 type ImportType = 'point' | 'credit' | 'qr';
+type PaymentField = 'pointUsage' | 'creditCardPayment' | 'qrPayment';
+
+interface CsvImportProps {
+  setEntries: React.Dispatch<React.SetStateAction<DailySalesEntry[]>>;
+}
 
 const typeConfig: Record<ImportType, { label: string; icon: string; color: string; bgColor: string; borderColor: string; lightBg: string }> = {
   point: {
@@ -43,7 +49,13 @@ const typeConfig: Record<ImportType, { label: string; icon: string; color: strin
   },
 };
 
-const CsvImport = () => {
+const paymentFieldMap: Record<ImportType, PaymentField> = {
+  point: 'pointUsage',
+  credit: 'creditCardPayment',
+  qr: 'qrPayment',
+};
+
+const CsvImport = ({ setEntries }: CsvImportProps) => {
   const [activeType, setActiveType] = useState<ImportType>('point');
   const [importResults, setImportResults] = useState<ImportResult[]>([]);
   const [dragOver, setDragOver] = useState(false);
@@ -60,6 +72,14 @@ const CsvImport = () => {
     setShowSuccess(true);
     setTimeout(() => setShowSuccess(false), 3000);
   };
+
+  const summarizeRowsByDate = useCallback((rows: CsvRow[]) => {
+    const totals = new Map<string, number>();
+    rows.forEach((row) => {
+      totals.set(row.date, (totals.get(row.date) || 0) + row.amount);
+    });
+    return Array.from(totals.entries()).map(([date, amount]) => ({ date, amount }));
+  }, []);
 
   const parseCsv = useCallback((text: string): CsvRow[] => {
     const lines = text.trim().split('\n');
@@ -156,19 +176,52 @@ const CsvImport = () => {
   const handleImport = () => {
     if (!previewData) return;
 
-    const totalAmount = previewData.reduce((sum, r) => sum + r.amount, 0);
+    const mergedRows = summarizeRowsByDate(previewData);
+    const totalAmount = mergedRows.reduce((sum, r) => sum + r.amount, 0);
     const result: ImportResult = {
       type: activeType,
       fileName: previewFileName,
-      rows: previewData,
+      rows: mergedRows,
       totalAmount,
       importedAt: new Date().toLocaleString('ja-JP'),
     };
 
+    const targetField = paymentFieldMap[activeType];
+    setEntries((prev) => {
+      const byDate = new Map(prev.map((entry) => [entry.date, entry]));
+      let seq = 0;
+      const timestamp = Date.now();
+
+      mergedRows.forEach((row) => {
+        const existing = byDate.get(row.date);
+        if (existing) {
+          byDate.set(row.date, {
+            ...existing,
+            [targetField]: row.amount,
+          });
+        } else {
+          byDate.set(row.date, {
+            id: `DS-${timestamp}-${seq++}`,
+            date: row.date,
+            revenue: 0,
+            customers: 0,
+            memo: '',
+            outsourceCosts: [],
+            pointUsage: activeType === 'point' ? row.amount : 0,
+            creditCardPayment: activeType === 'credit' ? row.amount : 0,
+            qrPayment: activeType === 'qr' ? row.amount : 0,
+            createdAt: new Date().toLocaleString('ja-JP'),
+          });
+        }
+      });
+
+      return Array.from(byDate.values()).sort((a, b) => b.date.localeCompare(a.date));
+    });
+
     setImportResults((prev) => [result, ...prev]);
     setPreviewData(null);
     setPreviewFileName('');
-    showNotification(`${typeConfig[activeType].label}のCSVデータを取り込みました（${previewData.length}件）`);
+    showNotification(`${typeConfig[activeType].label}のCSVデータを取り込み、売上入力へ反映しました（${mergedRows.length}日分）`);
   };
 
   const handleCancelPreview = () => {
